@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planificateur Personnel</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Planificateur d'Activités Hebdomadaires</h1>
+
+    <!-- Section pour ajouter/modifier une activité -->
+    <section id="activity-form-section">
+        <h2>Ajouter une Activité</h2>
+        <form id="activity-form">
+            <input type="hidden" id="activity-id" value="">
+            <div>
+                <label for="activity-name">Nom :</label>
+                <input type="text" id="activity-name" required>
+            </div>
+            <div>
+                <label for="activity-minutes">Temps Hebdo (minutes) :</label>
+                <input type="number" id="activity-minutes" required min="1">
+            </div>
+            <div>
+                <label for="activity-category">Catégorie :</label>
+                <select id="activity-category" required>
+                    <option value="Projet personnel">Projet personnel</option>
+                    <option value="Musique">Musique</option>
+                    <option value="Devoirs">Devoirs</option>
+                    <!-- Ajoutez d'autres catégories si besoin -->
+                </select>
+            </div>
+            <button type="submit">Ajouter/Modifier</button>
+            <button type="button" id="cancel-edit" style="display: none;">Annuler</button>
+        </form>
+    </section>
+
+    <!-- Section pour lister les activités -->
+    <section id="activity-list-section">
+        <h2>Activités Prévues</h2>
+        <ul id="activity-list">
+            <!-- Les activités seront chargées ici par JavaScript -->
+            <li class="loading">Chargement...</li>
+        </ul>
+    </section>
+
+     <!-- Section Paramètres (juste pour afficher l'URL source ici) -->
+     <section id="settings-section">
+        <h2>Paramètres</h2>
+        <p>
+            <strong>URL Calendrier Source :</strong>
+            <span id="calendar-url-display">
+                {% if calendar_url_config %}
+                    {{ calendar_url_config[:30] }}... (Configuré dans .env)
+                {% else %}
+                    Non configuré dans le fichier .env
+                {% endif %}
+            </span>
+        </p>
+         <p>Configurez l'URL publique de votre calendrier (.ics, en remplaçant webcal:// par https://) dans le fichier <code>.env</code> avec la clé <code>APPLE_CALENDAR_URL</code>.</p>
+    </section>
+
+    <!-- Section pour le lien du calendrier généré -->
+    <section id="generated-calendar-section">
+        <h2>Calendrier Généré</h2>
+        <p>Abonnez-vous à ce lien dans votre application de calendrier :</p>
+        <input type="text" id="generated-calendar-link" readonly size="50">
+        <button id="copy-link-button">Copier</button>
+    </section>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

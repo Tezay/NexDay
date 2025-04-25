@@ -1,0 +1,113 @@
+body {
+    font-family: sans-serif;
+    line-height: 1.6;
+    margin: 20px;
+    background-color: #f4f4f4;
+}
+
+h1, h2 {
+    color: #333;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 5px;
+}
+
+section {
+    background: #fff;
+    padding: 15px;
+    margin-bottom: 15px;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+#activity-form div {
+    margin-bottom: 10px;
+}
+
+#activity-form label {
+    display: inline-block;
+    width: 180px; /* Adjust as needed */
+}
+
+#activity-form input[type="text"],
+#activity-form input[type="number"],
+#activity-form select {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    width: 250px; /* Adjust as needed */
+}
+
+ button {
+    padding: 10px 15px;
+    background-color: #5cb85c;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    margin-right: 5px;
+}
+
+button:hover {
+    background-color: #4cae4c;
+}
+
+button#cancel-edit {
+    background-color: #aaa;
+}
+button#cancel-edit:hover {
+    background-color: #888;
+}
+
+#activity-list {
+    list-style: none;
+    padding: 0;
+}
+
+#activity-list li {
+    border: 1px solid #eee;
+    padding: 10px;
+    margin-bottom: 5px;
+    background-color: #f9f9f9;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+ #activity-list li .actions button {
+     padding: 5px 8px;
+     font-size: 0.9em;
+     margin-left: 5px;
+ }
+ #activity-list li .actions .delete-btn {
+     background-color: #d9534f;
+ }
+  #activity-list li .actions .delete-btn:hover {
+     background-color: #c9302c;
+ }
+   #activity-list li .actions .edit-btn {
+     background-color: #f0ad4e;
+ }
+  #activity-list li .actions .edit-btn:hover {
+     background-color: #ec971f;
+ }
+
+
+#generated-calendar-link {
+    width: calc(100% - 100px);
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background-color: #eee;
+}
+
+#copy-link-button {
+     background-color: #337ab7;
+}
+ #copy-link-button:hover {
+     background-color: #286090;
+}
+
+.loading {
+    font-style: italic;
+    color: #888;
+}
