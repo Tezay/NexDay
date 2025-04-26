@@ -106,14 +106,13 @@ def generate_ical_feed():
     # --- Fin de l'ajout ---
 
     # 0. Définir le fuseau horaire local (important!)
-    local_tz_name = 'Europe/Paris'
+    local_tz_name = 'Europe/Paris' # <--- Utiliser cette variable
     try:
         local_tz = pytz.timezone(local_tz_name)
     except pytz.UnknownTimeZoneError:
         print(f"Erreur: Fuseau horaire '{local_tz_name}' inconnu. Utilisation de UTC.")
         local_tz = pytz.utc
-        local_tz_name = 'UTC'
-
+        local_tz_name = 'UTC' # Update name if fallback occurs
 
     # 1. Définir la période pour laquelle générer le planning (ex: semaine prochaine)
     now_local = datetime.now(local_tz)
@@ -188,7 +187,16 @@ def generate_ical_feed():
 
     # 5. Générer le planning avec le scheduler
     #    Utilisation des datetime UTC pour la logique interne du scheduler
-    scheduled_events = generate_schedule(activities, busy_times_utc, week_start_utc, week_end_utc)
+    #    Passer le fuseau horaire local pour les contraintes internes au scheduler
+    print(f"Appel de generate_schedule avec local_tz_name='{local_tz_name}'") # Debug
+    scheduled_events = generate_schedule(
+        activities,
+        busy_times_utc,
+        week_start_utc,
+        week_end_utc,
+        local_tz_name=local_tz_name # <-- Passer le nom du fuseau horaire ici
+        # slot_duration_minutes peut être ajouté ici si on veut le rendre configurable via app.py
+    )
 
 
     # 6. Créer le contenu du fichier iCalendar
