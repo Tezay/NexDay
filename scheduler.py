@@ -44,20 +44,22 @@ def generate_schedule(activities, busy_times_utc, week_start_utc, week_end_utc, 
         print(f"Erreur: Fuseau horaire '{local_tz_name}' inconnu. Utilisation de UTC.")
         local_tz = pytz.utc # Fallback to UTC
 
-    # 1. Créer tous les créneaux possibles et filtrer selon les heures de travail et de déjeuner locales
+    # 1. Créer tous les créneaux possibles et filtrer selon les heures de travail, de déjeuner locales ET le jour de la semaine
     all_slots = []
     current_time_utc = week_start_utc
     while current_time_utc < week_end_utc:
         slot_end_utc = current_time_utc + slot_duration
-        # Convertir le début du créneau en heure locale pour vérifier les heures de travail/déjeuner
+        # Convertir le début du créneau en heure locale pour vérifier les heures de travail/déjeuner/jour
         current_time_local = current_time_utc.astimezone(local_tz)
         slot_hour_local = current_time_local.hour
+        slot_weekday_local = current_time_local.weekday() # 0 = Lundi, 6 = Dimanche
 
-        # Vérifier si le créneau est DANS les heures de travail ET HORS des heures de déjeuner
+        # Vérifier si le créneau est DANS les heures de travail ET HORS des heures de déjeuner ET PAS un dimanche
         is_working_hour = WORKING_HOUR_START <= slot_hour_local < WORKING_HOUR_END
         is_lunch_hour = LUNCH_START_HOUR <= slot_hour_local < LUNCH_END_HOUR
+        is_sunday = slot_weekday_local == 6 # Vérifier si c'est dimanche
 
-        if is_working_hour and not is_lunch_hour:
+        if is_working_hour and not is_lunch_hour and not is_sunday: # Ajout de 'and not is_sunday'
             all_slots.append({
                 'start': current_time_utc,
                 'end': slot_end_utc,
@@ -115,7 +117,7 @@ def generate_schedule(activities, busy_times_utc, week_start_utc, week_end_utc, 
         print("Aucune activité à planifier.")
         return []
 
-    # 5. Algorithme de placement amélioré (Renumbered from 4)
+    # 5. Algorithme de placement amélioré avec relaxation progressive
     scheduled_slots_details = [] # Stocke les détails des créneaux assignés
     scheduled_slots_by_day = defaultdict(lambda: defaultdict(int)) # {date: {category: count}}
     last_event_end_utc = None # Fin du dernier événement planifié par NOUS
@@ -133,6 +135,7 @@ def generate_schedule(activities, busy_times_utc, week_start_utc, week_end_utc, 
     while slots_scheduled_count < total_slots_needed and activity_needs and slot_idx < len(available_slots):
 
         slot = available_slots[slot_idx]
+        slot_local_date = slot['local_date'] # Get local date for the slot
 
         # Si ce créneau a déjà été traité sans succès pour toutes les activités, passer au suivant
         if slot_idx in processed_slot_indices:
@@ -146,54 +149,70 @@ def generate_schedule(activities, busy_times_utc, week_start_utc, week_end_utc, 
             continue
 
         # B. Respecte-t-il l'espacement minimum ?
+        # Check against the end time of the last *scheduled* event by this algorithm
         if last_event_end_utc is not None and slot['start'] < last_event_end_utc + min_gap_duration:
-            # Ce créneau est trop proche du précédent, on ne peut rien y mettre
-            # Marquer comme traité pour ne pas le retenter inutilement
+            # Ce créneau est trop proche du précédent événement planifié par nous.
+            # On ne peut rien y mettre. Marquer comme traité pour ne pas le retenter.
             processed_slot_indices.add(slot_idx)
             slot_idx += 1
             continue
 
-        # --- Essayer de placer une activité (Round-Robin) ---
+        # --- Essayer de placer une activité (Round-Robin avec relaxation) ---
         placed_activity_in_slot = False
-        initial_activity_index = activity_index # Pour détecter si on a fait un tour complet
-        tried_all_activities = False
+        initial_activity_index_for_slot = activity_index # Pour détecter si on a fait un tour complet pour ce slot
+        tried_all_activities_for_slot = False
 
-        while not placed_activity_in_slot and not tried_all_activities:
+        while not placed_activity_in_slot and not tried_all_activities_for_slot and activity_needs:
             need = activity_needs[activity_index]
             activity = need['activity']
-            slot_local_date = slot['local_date']
 
             # --- Vérifications spécifiques à l'activité pour ce créneau ---
-            can_schedule = True
+            can_schedule = False
+            relaxation_used = "None"
 
-            # C. Contrainte catégorie/jour: Pas plus d'une activité de cette catégorie ce jour-là
-            if scheduled_slots_by_day[slot_local_date][activity.category] >= 1:
-                can_schedule = False
-
-            # D. Contrainte de durée consécutive
+            # Calculer la durée continue potentielle si cette activité est placée ici
             is_continuing = (last_activity_info['id'] == activity.id and
                              last_event_end_utc is not None and
                              slot['start'] == last_event_end_utc) # Strictement consécutif
+            potential_continuous_duration = (last_activity_info['continuous_duration'] if is_continuing else timedelta(0)) + slot_duration
 
-            current_block_duration = last_activity_info['continuous_duration'] if is_continuing else timedelta(0)
+            # 1. Vérification Stricte
+            strict_category_ok = scheduled_slots_by_day[slot_local_date][activity.category] < 1
+            strict_duration_ok = potential_continuous_duration <= max_continuous_duration
 
-            if current_block_duration + slot_duration > max_continuous_duration:
-                 can_schedule = False # Dépasserait la durée max
+            if strict_category_ok and strict_duration_ok:
+                can_schedule = True
+                relaxation_used = "Strict"
+            else:
+                # 2. Vérification avec Relaxation Catégorie (si échec strict)
+                # Ignorer la contrainte de catégorie, mais vérifier toujours la durée max
+                relaxed_cat_duration_ok = potential_continuous_duration <= max_continuous_duration
+                if relaxed_cat_duration_ok:
+                    # On peut planifier en relaxant la catégorie, si la durée est ok
+                    can_schedule = True
+                    relaxation_used = "Relaxed Category"
+                # else:
+                    # Possibilité d'ajouter une relaxation de durée ici si nécessaire
+                    # pass
 
-            # --- Placement si toutes les conditions sont remplies ---
+            # --- Placement si l'une des vérifications a réussi ---
             if can_schedule:
+                if relaxation_used == "Relaxed Category":
+                     print(f"Info: Placement de '{activity.name}' le {slot_local_date} en relaxant la contrainte de catégorie (slot: {slot['start'].astimezone(local_tz).strftime('%H:%M')}).")
+
                 # Assigner le créneau
-                slot['available'] = False # Marquer comme utilisé
+                slot['available'] = False # Marquer comme utilisé globalement
                 need['slots_remaining'] -= 1
                 slots_scheduled_count += 1
 
                 # Mettre à jour les suivis
-                scheduled_slots_by_day[slot_local_date][activity.category] += 1
-                last_event_end_utc = slot['end']
+                scheduled_slots_by_day[slot_local_date][activity.category] += 1 # Toujours compter, même si relaxé
+                last_event_end_utc = slot['end'] # Mettre à jour la fin du dernier event planifié par NOUS
 
+                # Mettre à jour le suivi de l'activité continue
                 if is_continuing:
                     last_activity_info['continuous_duration'] += slot_duration
-                else:
+                else: # Nouvelle activité ou bloc non contigu
                     last_activity_info = {'id': activity.id, 'continuous_duration': slot_duration}
 
                 # Ajouter aux détails planifiés
@@ -205,27 +224,34 @@ def generate_schedule(activities, busy_times_utc, week_start_utc, week_end_utc, 
                 # Si l'activité est terminée, la retirer de la liste des besoins
                 if need['slots_remaining'] == 0:
                     print(f"Activité '{activity.name}' entièrement planifiée.")
+                    original_index = activity_index # Sauver l'index avant suppression
                     activity_needs.pop(activity_index)
-                    # Ajuster l'index pour le prochain tour si on supprime l'élément courant
-                    if not activity_needs: break # Plus rien à planifier
-                    activity_index %= len(activity_needs)
+                    if not activity_needs: break # Plus rien à planifier, sortir de la boucle d'essai pour ce slot
+                    # Ajuster l'index pour le prochain tour pour le *prochain slot*
+                    # Si on a supprimé un élément avant l'index initial du slot, il faut décrémenter l'index initial
+                    if original_index < initial_activity_index_for_slot:
+                         initial_activity_index_for_slot -= 1
+                    activity_index %= len(activity_needs) # Ajuster l'index courant
                 else:
-                    # Passer à l'activité suivante pour le prochain créneau (round-robin)
+                    # Passer à l'activité suivante pour le *prochain slot* (round-robin)
                     activity_index = (activity_index + 1) % len(activity_needs)
 
-                placed_activity_in_slot = True # Sortir de la boucle d'essai des activités pour ce créneau
+                placed_activity_in_slot = True # Sortir de la boucle d'essai des activités pour CE créneau
 
             else:
-                # Essayer l'activité suivante pour ce même créneau
+                # Cette activité n'a pas pu être placée dans ce créneau, même avec relaxation.
+                # Essayer l'activité suivante pour ce même créneau.
                 activity_index = (activity_index + 1) % len(activity_needs)
-                if activity_index == initial_activity_index:
-                    tried_all_activities = True # On a fait un tour complet sans succès
+                if activity_index == initial_activity_index_for_slot:
+                    tried_all_activities_for_slot = True # On a fait un tour complet sans succès pour ce slot
 
-        # Si aucune activité n'a pu être placée dans ce créneau après les avoir toutes essayées
+        # --- Fin de la boucle d'essai des activités pour ce créneau ---
+
+        # Si aucune activité n'a pu être placée dans ce créneau après les avoir toutes essayées (même avec relaxation)
         if not placed_activity_in_slot:
              processed_slot_indices.add(slot_idx) # Marquer ce créneau comme non utilisable pour le moment
 
-        # Passer au créneau suivant dans tous les cas
+        # Passer au créneau suivant dans tous les cas (qu'on ait placé ou non)
         slot_idx += 1
 
 
@@ -240,15 +266,19 @@ def generate_schedule(activities, busy_times_utc, week_start_utc, week_end_utc, 
             'end_utc': slot['end']
         })
 
+    print(f"Planification terminée. {len(scheduled_events_final)} créneaux planifiés.")
     # Afficher les avertissements pour les activités non entièrement planifiées
-    for need in activity_needs:
-        if need['slots_remaining'] > 0:
+    if activity_needs:
+        print("-" * 20)
+        print("AVERTISSEMENT: Toutes les activités n'ont pas pu être entièrement planifiées :")
+        for need in activity_needs:
             activity = need['activity']
             minutes_missing = need['slots_remaining'] * slot_duration_minutes
-            print(f"Avertissement: Temps insuffisant ou créneaux incompatibles pour planifier entièrement '{activity.name}'. "
-                  f"{minutes_missing} minutes ({need['slots_remaining']} créneaux) manquantes.")
+            print(f"  - '{activity.name}': {minutes_missing} minutes ({need['slots_remaining']} créneaux) manquantes. "
+                  f"Cause possible: Manque de temps disponible total ou conflits insolubles.")
+        print("-" * 20)
 
-    print(f"Planification terminée. {len(scheduled_events_final)} créneaux planifiés.")
+
     return scheduled_events_final
 
 # --- Fin de scheduler.py ---
